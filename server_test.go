@@ -217,6 +217,9 @@ func assertStatus(t testing.TB, got *httptest.ResponseRecorder, want int) {
 }
 
 func assertThreads(t testing.TB, got, want []server.Thread) {
+	if len(got) != len(want) {
+		t.Fatalf("Different number of threads returned, wanted %d, got %d.", len(want), len(got))
+	}
 	for i := 0; i < len(want); i++ {
 		assertThreadExceptID(t, got[i], want[i])
 	}
@@ -241,7 +244,7 @@ func assertThreadExceptID(t testing.TB, got, want server.Thread) {
 func getThreadFromBody(t testing.TB, r io.Reader) server.Thread {
 	t.Helper()
 
-	d, err := server.GetThreadFromBody(r)
+	d, err := server.GetThreadFromReader(r)
 
 	if err != nil {
 		t.Errorf("Error occured while getting thread from response body: %v", err)
@@ -287,3 +290,5 @@ func (s *spyStore) SaveThread(thread server.Thread) {
 func (s *spyStore) GetThreads() []server.Thread {
 	return s.threads
 }
+
+// TODO: Frontend

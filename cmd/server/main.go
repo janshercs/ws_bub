@@ -7,8 +7,15 @@ import (
 	"server"
 )
 
+const dbFileName = "threads.db.json"
+
 func main() {
-	store := &server.MemStore{}
+	store, closeDB, err := server.NewFFSFromPath(dbFileName)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer closeDB()
+
 	webserver := server.NewServer(store)
 	handler := http.HandlerFunc(webserver.ServeHTTP)
 	fmt.Printf("Starting server at http://localhost:5000\n")

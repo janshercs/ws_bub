@@ -54,7 +54,7 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 
 	case http.MethodPost:
-		thread, err := GetThreadFromBody(r.Body)
+		thread, err := GetThreadFromReader(r.Body)
 		if err != nil {
 			http.Error(w, UnreadablePayloadErrMsg, http.StatusBadRequest)
 		}
@@ -95,7 +95,7 @@ func (s *Server) singleThreadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(s.store.GetThreads()[index])
+	json.NewEncoder(w).Encode(threads[index]) // TODO: add getThreadByID()
 
 }
 
@@ -107,8 +107,17 @@ type Thread struct {
 	DownVotesCount int
 }
 
-func GetThreadFromBody(rdr io.Reader) (Thread, error) {
+func GetThreadFromReader(rdr io.Reader) (Thread, error) {
 	var d Thread
+	err := json.NewDecoder(rdr).Decode(&d)
+	if err != nil {
+		err = fmt.Errorf("problem parsing thread, %v", err)
+	}
+	return d, err
+}
+
+func GetThreadsFromReader(rdr io.Reader) ([]Thread, error) {
+	var d []Thread
 	err := json.NewDecoder(rdr).Decode(&d)
 	if err != nil {
 		err = fmt.Errorf("problem parsing thread, %v", err)
