@@ -12,6 +12,8 @@ import (
 	"server"
 	"strings"
 	"testing"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestServer(t *testing.T) {
@@ -170,6 +172,46 @@ func TestServer(t *testing.T) {
 	})
 }
 
+func TestWebSocket(t *testing.T) {
+	t.Run("Websocket request to /ws returns list all threads inside.", func(t *testing.T) {
+		threads := []server.Thread{
+			{
+				Content:        "What is the truth?",
+				User:           "Neo",
+				UpVotesCount:   0,
+				DownVotesCount: 0,
+			},
+			{
+				Content:        "There is no spoon",
+				User:           "Random kid",
+				UpVotesCount:   0,
+				DownVotesCount: 0,
+			},
+		}
+		threadServer := server.NewServer(&spyStore{threads})
+		testServer := httptest.NewServer(threadServer)
+		wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws"
+		ws := MustDialWS(t, wsURL)
+
+		defer ws.Close()
+		defer testServer.Close()
+
+		var got []server.Thread
+		ws.ReadJSON(&got)
+		assertThreads(t, got, threads)
+
+		firstThreadPayload := newThreadPayload("Excited about the Matrix", "Trinity")
+
+		request := newPOSTRequest("/thread", firstThreadPayload)
+		response := httptest.NewRecorder()
+		threadServer.ServeHTTP(response, request)
+		assertStatus(t, response, http.StatusOK)
+
+		ws.ReadJSON(&got)
+		fmt.Println(got)
+	})
+}
+
 func newGETRequest(path string) *http.Request {
 	request, _ := http.NewRequest(http.MethodGet, path, nil)
 	return request
@@ -291,4 +333,13 @@ func (s *spyStore) GetThreads() []server.Thread {
 	return s.threads
 }
 
-// TODO: Frontend
+func MustDialWS(t *testing.T, url string) *websocket.Conn {
+
+	ws, _, err := websocket.DefaultDialer.Dial(url, http.Header{
+		"Origin": []string{"http://localhost:3000"},
+	})
+	if err != nil {
+		t.Fatalf("could not open a ws connection on %s %v", url, err)
+	}
+	return ws
+}

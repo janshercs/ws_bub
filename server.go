@@ -5,14 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"path"
 	"strconv"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
 	JSONContentType         = "application/json"
 	UnreadablePayloadErrMsg = "Unable to decode payload"
+	allowedHosts            = "http://localhost:3000"
 )
 
 var (
@@ -30,6 +34,7 @@ type ThreadStore interface {
 type Server struct {
 	store ThreadStore
 	http.Handler
+	sockets []*websocket.Conn
 }
 
 func NewServer(store ThreadStore) *Server {
@@ -40,6 +45,7 @@ func NewServer(store ThreadStore) *Server {
 	router.Handle("/", http.HandlerFunc(s.homeHandler))
 	router.Handle("/thread", http.HandlerFunc(s.threadHandler))
 	router.Handle("/thread/", http.HandlerFunc(s.singleThreadHandler))
+	router.Handle("/ws", http.HandlerFunc(s.websocketHandler))
 
 	s.Handler = router
 
@@ -51,6 +57,9 @@ func (s *Server) homeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", allowedHosts)
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,access-control-allow-origin, access-control-allow-headers")
 	switch r.Method {
 
 	case http.MethodPost:
@@ -71,6 +80,10 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 		s.store.SaveThread(thread)
 
 		json.NewEncoder(w).Encode(thread)
+
+		for _, conn := range s.sockets {
+			conn.WriteJSON(s.store.GetThreads())
+		}
 
 	default:
 		w.Header().Set("content-type", JSONContentType)
@@ -97,6 +110,29 @@ func (s *Server) singleThreadHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(threads[index]) // TODO: add getThreadByID()
 
+}
+
+func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
+	wsUpgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	}
+
+	wsUpgrader.CheckOrigin = func(r *http.Request) bool {
+		if r.Header.Get("Origin") == allowedHosts {
+			return true
+		}
+		fmt.Printf("Refused websocket connection to %v", r.Header.Get("Origin"))
+		return false
+	}
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+
+	if err != nil {
+		log.Printf("problem upgrading connection to Websockets %v\n", err)
+	}
+
+	conn.WriteJSON(s.store.GetThreads())
+	s.sockets = append(s.sockets, conn)
 }
 
 type Thread struct {
