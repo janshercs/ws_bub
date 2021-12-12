@@ -16,10 +16,10 @@ import (
 const (
 	JSONContentType         = "application/json"
 	UnreadablePayloadErrMsg = "Unable to decode payload"
-	allowedHosts            = "http://localhost:3000"
 )
 
 var (
+	allowedOrigins   = []string{"http://localhost:3000", "https://wassup-bub.netlify.app"}
 	InvalidIDErr     = errors.New("Invalid ID provided")
 	EmptyContentErr  = errors.New("Thread content must have at least 1 character.")
 	MissingUserErr   = errors.New("Thread is missing a user.")
@@ -57,9 +57,11 @@ func (s *Server) homeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Access-Control-Allow-Origin", allowedHosts)
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,access-control-allow-origin, access-control-allow-headers")
+	if OriginIsAllowed(r) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,access-control-allow-origin, access-control-allow-headers")
+	}
 	switch r.Method {
 
 	case http.MethodPost:
@@ -119,7 +121,7 @@ func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wsUpgrader.CheckOrigin = func(r *http.Request) bool {
-		if r.Header.Get("Origin") == allowedHosts {
+		if OriginIsAllowed(r) {
 			return true
 		}
 		fmt.Printf("Refused websocket connection to %v", r.Header.Get("Origin"))
@@ -182,4 +184,14 @@ func (s *Server) GetIDFromRequest(r *http.Request) (int, error) {
 	}
 
 	return index, nil
+}
+
+func OriginIsAllowed(r *http.Request) bool {
+	requestOrigin := r.Header.Get("Origin")
+	for _, origin := range allowedOrigins {
+		if requestOrigin == origin {
+			return true
+		}
+	}
+	return false
 }
