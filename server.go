@@ -43,9 +43,11 @@ type ThreadStore interface {
 }
 
 type Server struct {
-	store ThreadStore
 	http.Handler
-	sockets []*ClientWS
+	sockets       []*ClientWS
+	store         ThreadStore
+	threadChannel chan Thread
+	sendChannel   chan bool
 }
 
 func NewServer(store ThreadStore) *Server {
@@ -130,20 +132,20 @@ func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 	client.SendThreads(s.store.GetThreads())
 	s.sockets = append(s.sockets, client)
-
 	var t Thread
 	go func() {
 		for {
-			err := client.GetThread(&t) // TODO: feels like should create a channel where it will return thread
+			err := client.GetThread(&t)
 			if err != nil {
 				log.Printf("Unable to get thread from websocket %v", err)
+				return
 			}
-
 			err = s.checkThread(t)
 			if err != nil {
 				log.Println(err)
+				return
 			}
-			s.store.SaveThread(t) // TODO: feels like should dequeue from the channel and store the thread
+			s.store.SaveThread(t)
 			for _, socket := range s.sockets {
 				err = socket.SendThreads(s.store.GetThreads())
 
