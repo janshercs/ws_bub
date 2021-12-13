@@ -136,19 +136,19 @@ func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		for {
 			err := client.GetThread(&t) // TODO: feels like should create a channel where it will return thread
 			if err != nil {
-				log.Fatalf("Unable to get thread from websocket %v", err)
+				log.Printf("Unable to get thread from websocket %v", err)
 			}
 
 			err = s.checkThread(t)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
 			}
 			s.store.SaveThread(t) // TODO: feels like should dequeue from the channel and store the thread
 			for _, socket := range s.sockets {
 				err = socket.SendThreads(s.store.GetThreads())
 
 				if err != nil {
-					log.Fatalf("Unable to send thread to websocket %v", err)
+					log.Printf("Unable to send thread to websocket %v", err)
 				}
 			}
 		}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -24,6 +23,6 @@ func main() {
 
 	webserver := server.NewServer(store)
 	handler := http.HandlerFunc(webserver.ServeHTTP)
-	fmt.Printf("Starting server at http://localhost:%s\n", port)
+	log.Printf("Starting server at http://localhost:%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
