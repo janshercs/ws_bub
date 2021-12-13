@@ -24,6 +24,17 @@ var (
 	EmptyContentErr  = errors.New("Thread content must have at least 1 character.")
 	MissingUserErr   = errors.New("Thread is missing a user.")
 	MissingThreadErr = errors.New("The thread you are looking for does not exists.")
+	wsUpgrader       = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			if OriginIsAllowed(r) {
+				return true
+			}
+			fmt.Printf("Refused websocket connection to %v", r.Header.Get("Origin"))
+			return false
+		},
+	}
 )
 
 type ThreadStore interface {
@@ -34,7 +45,7 @@ type ThreadStore interface {
 type Server struct {
 	store ThreadStore
 	http.Handler
-	sockets []*websocket.Conn
+	sockets []*ClientWS
 }
 
 func NewServer(store ThreadStore) *Server {
@@ -84,7 +95,7 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(thread)
 
 		for _, conn := range s.sockets {
-			conn.WriteJSON(s.store.GetThreads())
+			conn.SendThreads(s.store.GetThreads())
 		}
 
 	default:
@@ -115,28 +126,24 @@ func (s *Server) singleThreadHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
-	wsUpgrader := websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-	}
+	client := NewClientWS(w, r)
 
-	wsUpgrader.CheckOrigin = func(r *http.Request) bool {
-		if OriginIsAllowed(r) {
-			return true
+	client.SendThreads(s.store.GetThreads())
+	s.sockets = append(s.sockets, client)
+
+	var t Thread
+	go func() {
+		for {
+			client.GetThread(&t)  // TODO: feels like should create a channel where it will return thread
+			s.store.SaveThread(t) // TODO: feels like should dequeue from the channel and store the thread
+			for _, socket := range s.sockets {
+				socket.SendThreads(s.store.GetThreads())
+			}
 		}
-		fmt.Printf("Refused websocket connection to %v", r.Header.Get("Origin"))
-		return false
-	}
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
-
-	if err != nil {
-		log.Printf("problem upgrading connection to Websockets %v\n", err)
-	}
-
-	conn.WriteJSON(s.store.GetThreads())
-	s.sockets = append(s.sockets, conn)
+	}()
 }
 
+type Threads []Thread
 type Thread struct {
 	ID             int
 	Content        string
@@ -194,4 +201,13 @@ func OriginIsAllowed(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+func NewClientWS(w http.ResponseWriter, r *http.Request) *ClientWS {
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+
+	if err != nil {
+		log.Printf("problem upgrading connection to Websockets %v\n", err)
+	}
+	return &ClientWS{conn}
 }

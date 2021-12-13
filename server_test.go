@@ -173,43 +173,54 @@ func TestServer(t *testing.T) {
 }
 
 func TestWebSocket(t *testing.T) {
-	t.Run("Websocket request to /ws returns list all threads inside.", func(t *testing.T) {
-		threads := []server.Thread{
-			{
-				Content:        "What is the truth?",
-				User:           "Neo",
-				UpVotesCount:   0,
-				DownVotesCount: 0,
-			},
-			{
-				Content:        "There is no spoon",
-				User:           "Random kid",
-				UpVotesCount:   0,
-				DownVotesCount: 0,
-			},
-		}
-		threadServer := server.NewServer(&spyStore{threads})
-		testServer := httptest.NewServer(threadServer)
-		wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws"
-		ws := MustDialWS(t, wsURL)
+	threads := []server.Thread{
+		{
+			Content:        "What is the truth?",
+			User:           "Neo",
+			UpVotesCount:   0,
+			DownVotesCount: 0,
+		},
+		{
+			Content:        "There is no spoon",
+			User:           "Random kid",
+			UpVotesCount:   0,
+			DownVotesCount: 0,
+		},
+	}
 
-		defer ws.Close()
-		defer testServer.Close()
+	testStore := &spyStore{threads}
+	threadServer := server.NewServer(testStore)
+	testServer := httptest.NewServer(threadServer)
+	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws"
+	ws := MustDialWS(t, wsURL)
+
+	defer ws.Close()
+	defer testServer.Close()
+	t.Run("Websocket request to /ws returns list all threads inside.", func(t *testing.T) {
+		var got []server.Thread
+		ws.ReadJSON(&got)
+		assertThreads(t, got, threads)
+
+	})
+
+	t.Run("Websocket send Threads to /ws received and saved by store.", func(t *testing.T) {
+		firstThreadPayload := newThreadPayload("Excited about the Matrix", "Trinity")
+		threads = append(threads, threadPayloadToThread(firstThreadPayload))
+
+		ws.WriteJSON(firstThreadPayload)
 
 		var got []server.Thread
 		ws.ReadJSON(&got)
 		assertThreads(t, got, threads)
 
-		firstThreadPayload := newThreadPayload("Excited about the Matrix", "Trinity")
-
-		request := newPOSTRequest("/thread", firstThreadPayload)
-		response := httptest.NewRecorder()
-		threadServer.ServeHTTP(response, request)
-		assertStatus(t, response, http.StatusOK)
+		secondThreadPayload := newThreadPayload("I know kungfu", "Neo")
+		threads = append(threads, threadPayloadToThread(secondThreadPayload))
+		ws.WriteJSON(secondThreadPayload)
 
 		ws.ReadJSON(&got)
-		fmt.Println(got)
+		assertThreads(t, got, threads)
 	})
+
 }
 
 func newGETRequest(path string) *http.Request {
