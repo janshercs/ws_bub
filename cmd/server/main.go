@@ -22,6 +22,9 @@ func main() {
 	defer closeDB()
 
 	webserver := server.NewServer(store)
+	go webserver.StartWorkers()
+	go webserver.StartWorkers()
+
 	handler := http.HandlerFunc(webserver.ServeHTTP)
 	log.Printf("Starting server at http://localhost:%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, handler))

@@ -190,6 +190,8 @@ func TestWebSocket(t *testing.T) {
 
 	testStore := &spyStore{threads}
 	threadServer := server.NewServer(testStore)
+	go threadServer.StartWorkers()
+
 	testServer := httptest.NewServer(threadServer)
 	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws"
 	ws := MustDialWS(t, wsURL)

@@ -53,6 +53,8 @@ type Server struct {
 func NewServer(store ThreadStore) *Server {
 	s := new(Server)
 	s.store = store
+	s.threadChannel = make(chan Thread, 3)
+	s.sendChannel = make(chan bool, 3)
 
 	router := http.NewServeMux()
 	router.Handle("/", http.HandlerFunc(s.homeHandler))
@@ -132,29 +134,8 @@ func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 	client.SendThreads(s.store.GetThreads())
 	s.sockets = append(s.sockets, client)
-	var t Thread
-	go func() {
-		for {
-			err := client.GetThread(&t)
-			if err != nil {
-				log.Printf("Unable to get thread from websocket %v", err)
-				return
-			}
-			err = s.checkThread(t)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			s.store.SaveThread(t)
-			for _, socket := range s.sockets {
-				err = socket.SendThreads(s.store.GetThreads())
 
-				if err != nil {
-					log.Printf("Unable to send thread to websocket %v", err)
-				}
-			}
-		}
-	}()
+	go s.ProcessThreadFromClient(client)
 }
 
 type Threads []Thread
@@ -224,4 +205,54 @@ func NewClientWS(w http.ResponseWriter, r *http.Request) *ClientWS {
 		log.Printf("problem upgrading connection to Websockets %v\n", err)
 	}
 	return &ClientWS{conn}
+}
+
+func (s *Server) ProcessThreadFromClient(client *ClientWS) {
+	for {
+		var t Thread
+		err := client.GetThread(&t)
+		if err != nil {
+			log.Printf("Unable to get thread from websocket %v", err)
+			return
+		}
+
+		err = s.checkThread(t)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		s.threadChannel <- t
+	}
+}
+
+func (s *Server) UpdateAllSockets() {
+	for _, socket := range s.sockets {
+		err := socket.SendThreads(s.store.GetThreads())
+
+		if err != nil {
+			log.Printf("Unable to send thread to websocket %v", err)
+		}
+	}
+}
+
+func (s *Server) StartWorkers() {
+	go s.ThreadSaver()
+	go s.SocketUpdater()
+}
+
+func (s *Server) ThreadSaver() {
+	for {
+		t := <-s.threadChannel
+		s.store.SaveThread(t)
+		s.sendChannel <- true
+	}
+}
+
+func (s *Server) SocketUpdater() {
+	for {
+		signal := <-s.sendChannel
+		if signal {
+			s.UpdateAllSockets()
+		}
+	}
 }
