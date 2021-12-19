@@ -12,6 +12,7 @@ import (
 	"server"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -22,14 +23,14 @@ func TestServer(t *testing.T) {
 		response := httptest.NewRecorder()
 
 		store := &spyStore{}
-		server := server.NewServer(store)
+		server := server.NewServer(store, NewSpyClientManager())
 
 		server.ServeHTTP(response, request)
 		assertStatus(t, response, http.StatusOK)
 	})
 
 	t.Run("Post 2 threads and GET request to /thread returns both threads", func(t *testing.T) {
-		testServer := server.NewServer(&spyStore{})
+		testServer := server.NewServer(&spyStore{}, NewSpyClientManager())
 
 		firstThreadPayload := newThreadPayload("this is thread 1", "anna")
 		secondThreadPayload := newThreadPayload("this is thread 2", "bob")
@@ -70,7 +71,7 @@ func TestServer(t *testing.T) {
 		request := newPOSTRequest("/thread", testThread)
 		response := httptest.NewRecorder()
 		store := &spyStore{}
-		testServer := server.NewServer(store)
+		testServer := server.NewServer(store, NewSpyClientManager())
 
 		testServer.ServeHTTP(response, request)
 
@@ -88,7 +89,7 @@ func TestServer(t *testing.T) {
 		request := newPOSTRequest("/thread", testThread)
 		response := httptest.NewRecorder()
 		store := &spyStore{}
-		testServer := server.NewServer(store)
+		testServer := server.NewServer(store, NewSpyClientManager())
 
 		testServer.ServeHTTP(response, request)
 
@@ -107,7 +108,7 @@ func TestServer(t *testing.T) {
 		store := &spyStore{
 			threads: []server.Thread{thread, secondThread},
 		}
-		testServer := server.NewServer(store)
+		testServer := server.NewServer(store, NewSpyClientManager())
 
 		request := newGETRequest("/thread/0")
 		response := httptest.NewRecorder()
@@ -131,7 +132,7 @@ func TestServer(t *testing.T) {
 	t.Run("Invalid GET requests to /thread/{id} returns error", func(t *testing.T) {
 
 		store := &spyStore{}
-		testServer := server.NewServer(store)
+		testServer := server.NewServer(store, NewSpyClientManager())
 		testcase := []struct {
 			name string
 			url  string
@@ -189,7 +190,7 @@ func TestWebSocket(t *testing.T) {
 	}
 
 	testStore := &spyStore{threads}
-	threadServer := server.NewServer(testStore)
+	threadServer := server.NewServer(testStore, NewSpyClientManager())
 	go threadServer.StartWorkers()
 
 	testServer := httptest.NewServer(threadServer)
@@ -222,7 +223,30 @@ func TestWebSocket(t *testing.T) {
 		ws.ReadJSON(&got)
 		assertThreads(t, got, threads)
 	})
+}
 
+func TestWebSocketManagement(t *testing.T) {
+	threads := []server.Thread{}
+
+	testStore := &spyStore{threads}
+	testWSManager := NewSpyClientManager()
+	threadServer := server.NewServer(testStore, testWSManager)
+
+	go threadServer.StartWorkers()
+
+	testServer := httptest.NewServer(threadServer)
+	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws"
+	ws := MustDialWS(t, wsURL)
+
+	defer testServer.Close()
+
+	t.Run("Websocket gets removed when it is closed or not found.", func(t *testing.T) {
+		ws.Close()
+		time.Sleep(50 * time.Millisecond)
+		if len(testWSManager.GetClients()) != 0 {
+			t.Errorf("WS manager should have 0 sockets, but got %d", len(testWSManager.GetClients()))
+		}
+	})
 }
 
 func newGETRequest(path string) *http.Request {
@@ -344,6 +368,21 @@ func (s *spyStore) SaveThread(thread server.Thread) {
 
 func (s *spyStore) GetThreads() []server.Thread {
 	return s.threads
+}
+
+type spyClientManager struct {
+	server.ClientManager
+}
+
+func (s spyClientManager) GetClients() (clients []*server.ClientWS) {
+	for c := range s.Clients {
+		clients = append(clients, c)
+	}
+	return
+}
+
+func NewSpyClientManager() *spyClientManager {
+	return &spyClientManager{*server.NewClientManager()}
 }
 
 func MustDialWS(t *testing.T, url string) *websocket.Conn {

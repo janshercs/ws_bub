@@ -44,15 +44,17 @@ type ThreadStore interface {
 
 type Server struct {
 	http.Handler
-	sockets       []*ClientWS
+	socketManager WebSocketManager
 	store         ThreadStore
 	threadChannel chan Thread
 	sendChannel   chan bool
 }
 
-func NewServer(store ThreadStore) *Server {
+func NewServer(store ThreadStore, WSManager WebSocketManager) *Server {
 	s := new(Server)
+
 	s.store = store
+	s.socketManager = WSManager
 	s.threadChannel = make(chan Thread, 3)
 	s.sendChannel = make(chan bool, 3)
 
@@ -98,9 +100,7 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 
 		json.NewEncoder(w).Encode(thread)
 
-		for _, conn := range s.sockets {
-			conn.SendThreads(s.store.GetThreads())
-		}
+		s.socketManager.Broadcast(s.store.GetThreads())
 
 	default:
 		w.Header().Set("content-type", JSONContentType)
@@ -133,7 +133,8 @@ func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	client := NewClientWS(w, r)
 
 	client.SendThreads(s.store.GetThreads())
-	s.sockets = append(s.sockets, client)
+	s.socketManager.AddClient(client)
+	log.Printf("Added socket %v.", client)
 
 	go s.ProcessThreadFromClient(client)
 }
@@ -209,29 +210,19 @@ func NewClientWS(w http.ResponseWriter, r *http.Request) *ClientWS {
 
 func (s *Server) ProcessThreadFromClient(client *ClientWS) {
 	for {
-		var t Thread
-		err := client.GetThread(&t)
+		t, err := client.GetThread()
 		if err != nil {
-			log.Printf("Unable to get thread from websocket %v", err)
+			log.Println("Websocket closed.")
+			s.socketManager.RemoveClient(client)
 			return
 		}
 
-		err = s.checkThread(t)
-		if err != nil {
+		threadErr := s.checkThread(t)
+		if threadErr != nil {
 			log.Println(err)
 			return
 		}
 		s.threadChannel <- t
-	}
-}
-
-func (s *Server) UpdateAllSockets() {
-	for _, socket := range s.sockets {
-		err := socket.SendThreads(s.store.GetThreads())
-
-		if err != nil {
-			log.Printf("Unable to send thread to websocket %v", err)
-		}
 	}
 }
 
@@ -252,7 +243,7 @@ func (s *Server) SocketUpdater() {
 	for {
 		signal := <-s.sendChannel
 		if signal {
-			s.UpdateAllSockets()
+			s.socketManager.Broadcast(s.store.GetThreads())
 		}
 	}
 }

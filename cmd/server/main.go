@@ -21,7 +21,7 @@ func main() {
 	}
 	defer closeDB()
 
-	webserver := server.NewServer(store)
+	webserver := server.NewServer(store, server.NewClientManager())
 	go webserver.StartWorkers()
 	go webserver.StartWorkers()
 
