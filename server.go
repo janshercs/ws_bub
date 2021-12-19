@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"path"
@@ -134,36 +133,8 @@ func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 	client.SendThreads(s.store.GetThreads())
 	s.socketManager.AddClient(client)
-	log.Printf("Added socket %v.", client)
 
 	go s.ProcessThreadFromClient(client)
-}
-
-type Threads []Thread
-type Thread struct {
-	ID             int
-	Content        string
-	User           string
-	UpVotesCount   int
-	DownVotesCount int
-}
-
-func GetThreadFromReader(rdr io.Reader) (Thread, error) {
-	var d Thread
-	err := json.NewDecoder(rdr).Decode(&d)
-	if err != nil {
-		err = fmt.Errorf("problem parsing thread, %v", err)
-	}
-	return d, err
-}
-
-func GetThreadsFromReader(rdr io.Reader) ([]Thread, error) {
-	var d []Thread
-	err := json.NewDecoder(rdr).Decode(&d)
-	if err != nil {
-		err = fmt.Errorf("problem parsing thread, %v", err)
-	}
-	return d, err
 }
 
 func (s *Server) checkThread(thread Thread) error {
@@ -223,27 +194,5 @@ func (s *Server) ProcessThreadFromClient(client *ClientWS) {
 			return
 		}
 		s.threadChannel <- t
-	}
-}
-
-func (s *Server) StartWorkers() {
-	go s.ThreadSaver()
-	go s.SocketUpdater()
-}
-
-func (s *Server) ThreadSaver() {
-	for {
-		t := <-s.threadChannel
-		s.store.SaveThread(t)
-		s.sendChannel <- true
-	}
-}
-
-func (s *Server) SocketUpdater() {
-	for {
-		signal := <-s.sendChannel
-		if signal {
-			s.socketManager.Broadcast(s.store.GetThreads())
-		}
 	}
 }

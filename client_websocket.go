@@ -52,7 +52,7 @@ func (c ClientManager) Broadcast(t Threads) {
 	for client := range c.Clients {
 		err := client.SendThreads(t)
 		if err != nil {
-			log.Printf("Error encountered when sending to client. %v", err)
+			log.Printf("Error encountered when sending to client. %v", err) // TODO: Add missing client handling here.
 		}
 	}
 }
