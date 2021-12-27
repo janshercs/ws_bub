@@ -38,7 +38,7 @@ var (
 
 type ThreadStore interface {
 	SaveThread(thread Thread)
-	GetThreads() []Thread
+	GetThreads() Threads
 }
 
 type Server struct {
@@ -46,22 +46,27 @@ type Server struct {
 	socketManager WebSocketManager
 	store         ThreadStore
 	threadChannel chan Thread
-	sendChannel   chan bool
+	sendChannel   chan string
+
+	text []byte
 }
 
 func NewServer(store ThreadStore, WSManager WebSocketManager) *Server {
 	s := new(Server)
 
 	s.store = store
+	s.text = []byte("hi, enter text here")
 	s.socketManager = WSManager
 	s.threadChannel = make(chan Thread, 3)
-	s.sendChannel = make(chan bool, 3)
+	s.sendChannel = make(chan string, 3)
 
 	router := http.NewServeMux()
 	router.Handle("/", http.HandlerFunc(s.homeHandler))
 	router.Handle("/thread", http.HandlerFunc(s.threadHandler))
 	router.Handle("/thread/", http.HandlerFunc(s.singleThreadHandler))
-	router.Handle("/ws", http.HandlerFunc(s.websocketHandler))
+	router.Handle("/ws", http.HandlerFunc(s.chatHandler)) // TO BE DEPRECATED
+	router.Handle("/chat", http.HandlerFunc(s.chatHandler))
+	router.Handle("/pair", http.HandlerFunc(s.pairHandler))
 
 	s.Handler = router
 
@@ -99,7 +104,7 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 
 		json.NewEncoder(w).Encode(thread)
 
-		s.socketManager.Broadcast(s.store.GetThreads())
+		s.socketManager.Broadcast(s.socketManager.GetChatClients(), s.store.GetThreads())
 
 	default:
 		w.Header().Set("content-type", JSONContentType)
@@ -128,13 +133,24 @@ func (s *Server) singleThreadHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	client := NewClientWS(w, r)
 
 	client.SendThreads(s.store.GetThreads())
 	s.socketManager.AddClient(client)
 
 	go s.ProcessThreadFromClient(client)
+}
+
+func (s *Server) pairHandler(w http.ResponseWriter, r *http.Request) {
+	client := NewClientWS(w, r)
+	s.socketManager.AddClient(client)
+	err := client.WriteMessage(s.text)
+	if err != nil {
+		log.Printf("problem sending message %v\n", err)
+	}
+
+	go s.ProcessMessageFromClient(client)
 }
 
 func (s *Server) checkThread(thread Thread) error {
@@ -176,7 +192,7 @@ func NewClientWS(w http.ResponseWriter, r *http.Request) *ClientWS {
 	if err != nil {
 		log.Printf("problem upgrading connection to Websockets %v\n", err)
 	}
-	return &ClientWS{conn}
+	return &ClientWS{socket: conn, pair: r.URL.Path == "/pair"}
 }
 
 func (s *Server) ProcessThreadFromClient(client *ClientWS) {
@@ -194,5 +210,18 @@ func (s *Server) ProcessThreadFromClient(client *ClientWS) {
 			return
 		}
 		s.threadChannel <- t
+	}
+}
+
+func (s *Server) ProcessMessageFromClient(client *ClientWS) {
+	for {
+		_, msg, err := client.socket.ReadMessage()
+		if err != nil {
+			log.Println("Websocket closed.")
+			s.socketManager.RemoveClient(client)
+			return
+		}
+		s.text = msg
+		s.sendChannel <- "pair"
 	}
 }

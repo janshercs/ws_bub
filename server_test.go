@@ -359,14 +359,14 @@ type threadPayload struct {
 }
 
 type spyStore struct {
-	threads []server.Thread
+	threads server.Threads
 }
 
 func (s *spyStore) SaveThread(thread server.Thread) {
 	s.threads = append(s.threads, thread)
 }
 
-func (s *spyStore) GetThreads() []server.Thread {
+func (s *spyStore) GetThreads() server.Threads {
 	return s.threads
 }
 

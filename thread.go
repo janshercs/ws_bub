@@ -24,8 +24,8 @@ func GetThreadFromReader(rdr io.Reader) (Thread, error) {
 	return d, err
 }
 
-func GetThreadsFromReader(rdr io.Reader) ([]Thread, error) {
-	var d []Thread
+func GetThreadsFromReader(rdr io.Reader) (Threads, error) {
+	var d Threads
 	err := json.NewDecoder(rdr).Decode(&d)
 	if err != nil {
 		err = fmt.Errorf("problem parsing thread, %v", err)

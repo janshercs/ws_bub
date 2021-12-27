@@ -54,10 +54,10 @@ func initialiseFlatFileDB(file *os.File) error {
 
 type FlatFileSystem struct {
 	database *json.Encoder
-	threads  []Thread
+	threads  Threads
 }
 
-func (f *FlatFileSystem) GetThreads() []Thread {
+func (f *FlatFileSystem) GetThreads() Threads {
 	return f.threads
 }
 
